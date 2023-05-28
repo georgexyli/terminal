@@ -1,4 +1,3 @@
-import gamelib
 import random
 import math
 import warnings
@@ -33,6 +32,11 @@ class AlgoStrategy(gamelib.AlgoCore):
         unit deployments, and transmitting your intended deployments to the
         game engine.
         """
+        game_state = gamelib.GameState(self.config, turn_state)
+        if game_state.turn_number == 1:
+            game_state = initBase(game_state)
+        game_state.submit_turn()
+
 
     def on_action_frame(self, action_frame_game_state):
         """

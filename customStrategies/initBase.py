@@ -1,11 +1,12 @@
 ####Function to initize the base
-
+import GLOBAL
 import gamelib
-from customStrategies import *
 
+wall_locations=[[1,13]]
+turret_locations=[[0,13]]
 
-initBaseWall=[()]
+def initBase(game_state: gamelib.GameState):
+    game_state.attempt_spawn(GLOBAL.WALL, wall_locations)
 
-def initBase():
-    for i,j in initBaseWall:
-        x=i
+    game_state.attempt_spawn(GLOBAL.TURRET, turret_locations)
+    return game_state
