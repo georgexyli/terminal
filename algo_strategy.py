@@ -4,4 +4,7 @@ import math
 import warnings
 from sys import maxsize
 import json
-import customStrategies
+from customStrategies import *
+
+
+hihi()
