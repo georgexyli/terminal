@@ -13,7 +13,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         random.seed(seed)
         gamelib.debug_write("Random seed: {}".format(seed))
 
-    def initBase(game_state: gamelib.GameState):
+    def initBase(self, game_state: gamelib.GameState):
         gamelib.debug_write("running")
         wall_locations = [
             [2, 13],
@@ -27,6 +27,8 @@ class AlgoStrategy(gamelib.AlgoCore):
             [10, 7],
             [11, 6],
             [12, 5],
+            [13, 5],
+            [14, 5],
             [15, 5],
             [16, 5],
             [17, 5],
