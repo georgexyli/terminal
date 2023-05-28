@@ -45,6 +45,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         if game_state.turn_number == 0:
             game_state = self.initBase(game_state)
         game_state = self.fixBase(game_state)
+        game_state = self.upgradeWalls(game_state)
         game_state = self.addUpgradeTurrets(game_state)
         game_state.submit_turn()
 
@@ -66,6 +67,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         ]
         game_state.attempt_upgrade(upgrade_turret_locations)
         game_state.attempt_spawn(TURRET, upgrade_turret_locations)
+        return game_state
 
     def upgradeWalls(self, game_state: gamelib.GameState):
         upgrade_wall_locations = [
