@@ -5,7 +5,7 @@ from sys import maxsize
 import json
 import gamelib
 from queue import Queue
-import json
+import math
 
 
 class AlgoStrategy(gamelib.AlgoCore):
@@ -19,6 +19,9 @@ class AlgoStrategy(gamelib.AlgoCore):
         self.heat_map = [[0] * (self.MAPSIZE + 1) for _ in range((self.MAPSIZE + 1))]
         self.hurt = False
 
+        self.interceptorLocations = []
+        self.game_turn = 0
+        self.frame_number = 0
         random.seed(seed)
         gamelib.debug_write("Random seed: {}".format(seed))
 
@@ -44,33 +47,29 @@ class AlgoStrategy(gamelib.AlgoCore):
         SP = 0
 
     def on_turn(self, turn_state):
+        """
+        This function is called every turn with the game state wrapper as
+        an argument. The wrapper stores the state of the arena and has methods
+        for querying its state, allocating your current resources as planned
+        unit deployments, and transmitting your intended deployments to the
+        game engine.
+        """
+        self.frame_number = 0
+        i = 0
+        gamelib.debug_write(self.interceptorLocations)
+        while (
+            len(self.interceptorLocations) != 0
+            and self.interceptorLocations[i][2] != self.interceptorLocations[-1][2]
+        ):
+            i += 1
+        if len(self.interceptorLocations) != 0:
+            self.interceptorLocations = self.interceptorLocations[i:]
         game_state = gamelib.GameState(self.config, turn_state)
         if game_state.turn_number == 0:
             game_state = self.initBase(game_state)
         game_state = self.fixBase(game_state)
         game_state = self.upgradeWalls(game_state)
         game_state = self.addUpgradeTurrets(game_state)
-
-        gameUnit = gamelib.GameUnit(SCOUT, CONFIG, x=13, y=0, player_index=0)
-        (
-            damageToWall,
-            wallDestroyed,
-            damageToUpgradedWall,
-            upgradedWallDestroyed,
-            damageToTurret,
-            turretDestroyed,
-            damageToUpgradedTurret,
-            upgradedTurretsDestroyed,
-            damageToSupport,
-            supportDestroyed,
-            damageToUpgradedSupport,
-            upgradedSupportsDestroyed,
-            damageToEnemyUser,
-            x,
-            y,
-        ) = self.mimic_path(gameUnit, 1, game_state, game_state.game_map, [13, 0])
-
-        game_state.suppress_warnings(True)
 
         a = self.choose_intercepter(
             game_state.game_map,
@@ -99,38 +98,12 @@ class AlgoStrategy(gamelib.AlgoCore):
             for j in range(len(self.heat_map[i])):
                 self.heat_map[i][j] *= 0.75
 
-        game_state.submit_turn()
+        game_state = self.spawn_attack(game_state, game_state.game_map)
+        game_state.suppress_warnings(True)
+        game_state.suppress_warnings(True)
+        self.game_turn += 1
 
-    def on_action_frame(self, string_state: str):
-        game_state = json.loads(string_state)
-        map = gamelib.GameMap(self.config)
-        attackRange = [
-            [0, 0],
-            [0, 1],
-            [0, 2],
-            [0, 3],
-            [1, 0],
-            [1, 1],
-            [1, 2],
-            [1, 3],
-            [2, 0],
-            [2, 1],
-            [2, 2],
-            [2, 3],
-            [3, 0],
-            [3, 1],
-            [3, 2],
-            [3, 3],
-        ]
-        ## record path of scouts and demolishers
-        for unit in game_state["p2Units"][3]:
-            for [x, y] in attackRange:
-                if map.in_arena_bounds([x + unit[0], y + unit[1]]):
-                    self.heat_map[x + unit[0]][y + unit[1]] += 1
-        for unit in game_state["p2Units"][4]:
-            for [x, y] in attackRange:
-                if map.in_arena_bounds([x + unit[0], y + unit[1]]):
-                    self.heat_map[x + unit[0]][y + unit[1]] += 1
+        game_state.submit_turn()
 
     def choose_intercepter(
         self, game_map: gamelib.GameMap, game_state: gamelib.GameState
@@ -167,12 +140,13 @@ class AlgoStrategy(gamelib.AlgoCore):
 
     def fixBase(self, game_state: gamelib.GameState):
         ####potential upgrade --> if there you can't rebuild whole base try to fill the things in the middle
-        startMP = game_state._player_resources[0]["SP"]
         game_state.suppress_warnings(True)
         game_state.attempt_spawn(WALL, wall_locations)
         game_state.attempt_spawn(TURRET, turret_locations)
-        self.hurt = startMP == game_state._player_resources[0]["SP"]
         return game_state
+
+    def attackCombo():
+        return
 
     ###when to stop saving NEED TO DEBUG
     def savingLimitReached(self, game_state: gamelib.GameState):
@@ -186,6 +160,7 @@ class AlgoStrategy(gamelib.AlgoCore):
         visted[x][y] = 0
         while not queue.empty():
             a, b = queue.get()
+            ##gamelib.debug_write(a,b)
             for i, j in [(a - 1, b), (a + 1, b), (a, b + 1), (a, b - 1)]:
                 if game_map.in_arena_bounds([i, j]) and visted[i][j] < 0:
                     if len(game_map[i, j]) == 0:
@@ -288,6 +263,7 @@ class AlgoStrategy(gamelib.AlgoCore):
                 return i, j
         return -1, -1
 
+    ####when calling function remember to use game_state.copy()
     def mimic_path(
         self,
         unit: gamelib.GameUnit,
@@ -320,8 +296,10 @@ class AlgoStrategy(gamelib.AlgoCore):
         ret = False
         frame = 0
         targetEdge = game_state.get_target_edge([x, y])
-
         prevMovDir = self.HORIZONTAL
+        for i in self.interceptorLocations:
+            game_map.add_unit(INTERCEPTOR, [i[0], i[1]], 1)
+            game_state.game_map.add_unit(INTERCEPTOR, [i[0], i[1]], 1)
         while True:
             ##update your location if on the edge end while loop and return
             unit.x, unit.y = self.next_step(
@@ -335,7 +313,6 @@ class AlgoStrategy(gamelib.AlgoCore):
             if [unit.x, unit.y] in game_map.get_edges()[targetEdge]:
                 damageToEnemyUser += unitsLeft
                 ret = True
-
             ##self destruct
             if unit.x == -1:
                 for i in [x - 1, x, x + 1]:
@@ -402,6 +379,25 @@ class AlgoStrategy(gamelib.AlgoCore):
             if ret == True:
                 break
 
+            for i in self.interceptorLocations:
+                if (
+                    game_state.get_target(
+                        gamelib.GameUnit(
+                            INTERCEPTOR, CONFIG, x=i[0], y=i[1], player_index=1
+                        )
+                    )
+                    is not None
+                ):
+                    currentUnitHealth -= 20
+                    if currentUnitHealth <= 0:
+                        unitsLeft -= 1
+                        if unitsLeft <= 0:
+                            ret = True
+                            break
+                        currentUnitHealth = unit.max_health
+            if ret == True:
+                break
+
             ##unit attack and change game state
             attacksLeft = unitsLeft
             while attacksLeft > 0:
@@ -421,8 +417,13 @@ class AlgoStrategy(gamelib.AlgoCore):
                         0
                     ] = unitAttacked
                 else:
-                    game_state.game_map.remove_unit([unitAttacked.x, unitAttacked.y])
-                    dead = True
+                    if unitAttacked.unit_type == INTERCEPTOR:
+                        game_state.game_map[unitAttacked.x, unitAttacked.y].pop()
+                    else:
+                        game_state.game_map.remove_unit(
+                            [unitAttacked.x, unitAttacked.y]
+                        )
+                        dead = True
                 if unitAttacked.unit_type == TURRET and unitAttacked.upgraded == False:
                     damageToTurret += damageDone
                     if dead:
@@ -447,7 +448,6 @@ class AlgoStrategy(gamelib.AlgoCore):
                     damageToUpgradedSupport += damageDone
                     if dead:
                         upgradedSupportsDestroyed += 1
-
             frame += 1
 
         ##check if our dude die and end the while loop or
@@ -530,6 +530,101 @@ class AlgoStrategy(gamelib.AlgoCore):
         game_state.attempt_spawn(WALL, wall_locations)
         game_state.attempt_spawn(TURRET, turret_locations)
         return game_state
+
+    def spawn_attack(self, game_state: gamelib.GameState, game_map: gamelib.GameMap):
+        bestscore = 500
+        bestunit = None
+        bestlocation = None
+        bestnum = 0
+        if self.savingLimitReached(game_state):
+            bestscore = 0
+        for type in [SCOUT, DEMOLISHER]:
+            unit = gamelib.GameUnit(type, CONFIG, x=13, y=0, player_index=0)
+            spawnable = int(game_state.number_affordable(unit.unit_type))
+            if spawnable == 0:
+                continue
+            for number in range(1, spawnable, math.ceil(spawnable / 3)):
+                for location in [[16, 2], [25, 11]]:
+                    [unit.x, unit.y] = location
+                    (
+                        damageToWall,
+                        wallDestroyed,
+                        damageToUpgradedWall,
+                        upgradedWallDestroyed,
+                        damageToTurret,
+                        turretDestroyed,
+                        damageToUpgradedTurret,
+                        upgradedTurretsDestroyed,
+                        damageToSupport,
+                        supportDestroyed,
+                        damageToUpgradedSupport,
+                        upgradedSupportsDestroyed,
+                        damageToEnemyUser,
+                        x,
+                        y,
+                    ) = self.mimic_path(
+                        unit, number, game_state, game_map, [unit.x, unit.y]
+                    )
+                    score = (
+                        damageToWall
+                        + 30 * wallDestroyed
+                        + damageToUpgradedWall
+                        + 60 * upgradedWallDestroyed
+                        + 20 * damageToTurret
+                        + 200 * turretDestroyed
+                        + damageToUpgradedTurret
+                        + 100 * upgradedTurretsDestroyed
+                        + damageToSupport
+                        + 15 * supportDestroyed
+                        + damageToUpgradedSupport
+                        + 30 * upgradedSupportsDestroyed
+                        + 100 * damageToEnemyUser
+                    )
+                    if score > bestscore:
+                        bestscore = score
+                        bestunit = unit.unit_type
+                        bestlocation = location
+                        bestnum = number
+        if bestunit is not None:
+            game_state.attempt_spawn(bestunit, bestlocation, num=bestnum)
+        return game_state
+
+    def on_action_frame(self, string_state: str):
+        game_state = json.loads(string_state)
+        map = gamelib.GameMap(self.config)
+        attackRange = [
+            [0, 0],
+            [0, 1],
+            [0, 2],
+            [0, 3],
+            [1, 0],
+            [1, 1],
+            [1, 2],
+            [1, 3],
+            [2, 0],
+            [2, 1],
+            [2, 2],
+            [2, 3],
+            [3, 0],
+            [3, 1],
+            [3, 2],
+            [3, 3],
+        ]
+        ## record path of scouts and demolishers
+        for unit in game_state["p2Units"][3]:
+            for [x, y] in attackRange:
+                if map.in_arena_bounds([x + unit[0], y + unit[1]]):
+                    self.heat_map[x + unit[0]][y + unit[1]] += 1
+        for unit in game_state["p2Units"][4]:
+            for [x, y] in attackRange:
+                if map.in_arena_bounds([x + unit[0], y + unit[1]]):
+                    self.heat_map[x + unit[0]][y + unit[1]] += 1
+        if self.frame_number % 8 == 0:
+            p2Units = game_state["p2Units"]
+            for unit in p2Units[5]:
+                if unit is not None and unit[1] == 16:
+                    self.interceptorLocations.append([unit[0], unit[1], self.game_turn])
+        self.frame_number += 1
 
 
 if __name__ == "__main__":
